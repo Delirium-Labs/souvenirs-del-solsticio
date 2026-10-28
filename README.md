@@ -6,6 +6,7 @@ Proyecto #1 de **Delirium Labs**. Una lista de deseos convertida en una tienda d
 
 ```bash
 npm install
+copy .env.example .env  # completa las variables públicas de Supabase
 npm run dev        # abre http://localhost:5173
 ```
 
@@ -33,6 +34,7 @@ El botón **✦ IA** convierte una descripción ("una guitarra eléctrica roja d
 - La llamada sale directo del navegador al proveedor (`src/ai/souvenir-ai.js`). La llave no pasa por ningún servidor de la tienda; por defecto vive solo en memoria y se guarda en el navegador únicamente si marcas "Recordar".
 - La respuesta se valida antes de dibujarse (`src/models/parts.js`): formas permitidas, números acotados, máximo 60 piezas.
 - **VER UN EJEMPLO** muestra el resultado sin llave.
+- Los visitantes guardan los souvenirs creados con IA en **MI VITRINA**, dentro de su navegador; nunca escriben en la vitrina pública.
 - En la vista previa dentro de Claude las llamadas a la IA están bloqueadas; en local (`npm run dev`) y en Vercel sí funcionan. `vercel.json` trae una política CSP que solo permite conectar con Anthropic, OpenAI y Supabase.
 
 ## Precios de referencia de la lista
@@ -61,7 +63,8 @@ src/
   ai/souvenir-ai.js  crear con IA con la llave de cada quien
   scenes/            entrada, vitrina, globo, compra, libreta
   data/rules.js      reglas puras: días, escarcha, nieve, estantes, capítulos, logros
-  data/store.js      datos de la demo en el navegador (interfaz async, lista para cambiar a Supabase)
+  data/store.js      adaptador local y validación del estado
+  data/supabase-store.js  adaptador remoto con Auth, RLS y fallback local para visitantes
   data/seed.js       datos de ejemplo
   ui/hud.js          HUD 2D y formularios
 scripts/to-artifact.mjs   genera la versión de un solo archivo que se publica como demo
@@ -75,6 +78,10 @@ Convención visual: todo objeto es 3D; los menús, botones, burbuja del duende y
 npm run build:artifact   # deja dist-artifact/souvenirs.html
 ```
 
-## Siguiente paso (ARD)
+## Delirium Hub
 
-Supabase para los datos (lectura pública, escritura solo del dueño con RLS) y Vercel para servir la app. `data/store.js` se reemplaza por un adaptador de Supabase con la misma interfaz; las escenas no cambian.
+La aplicación usa Supabase cuando existen `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`; sin ellas conserva la demo local. La vitrina, compras y logros son públicos, mientras que el ahorro y todas las escrituras están protegidos por RLS para el dueño.
+
+Las migraciones reproducibles viven en `supabase/migrations/`. El acceso usa enlace mágico por correo desde **ENTRAR**. Después de crear el primer usuario hay que registrarlo en `core.miembros` con el rol `dueno`.
+
+El workflow `.github/workflows/supabase-ping.yml` llama a `core.ping()` cada día. Requiere los secretos de GitHub `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.

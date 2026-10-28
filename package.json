@@ -11,10 +11,11 @@
     "build:artifact": "vite build --mode artifact && node scripts/to-artifact.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "three": "0.149.0"
   },
   "devDependencies": {
-    "vite": "5.4.20",
+    "vite": "^5.4.21",
     "vite-plugin-singlefile": "2.3.0"
   }
 }

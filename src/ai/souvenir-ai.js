@@ -65,12 +65,13 @@ export function aDeseo(obj) {
   return { nombre, precio, categoria, prioridad, color, modelo, piezas: modelo === 'ia' ? piezas : undefined };
 }
 
-async function llamar({ provider, model, key }, texto) {
+async function llamar({ provider, model, key }, texto, signal) {
   let res;
   try {
     if (provider === 'anthropic') {
       res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal,
         headers: {
           'content-type': 'application/json',
           'x-api-key': key,
@@ -82,11 +83,13 @@ async function llamar({ provider, model, key }, texto) {
     } else {
       res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
+        signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
         body: JSON.stringify({ model, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: systemPrompt() }, { role: 'user', content: texto }] }),
       });
     }
-  } catch {
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
     throw new Error('No se pudo conectar con la IA. Revisa tu internet. En la vista previa dentro de Claude estas llamadas están bloqueadas: pruébalo en la versión de Vercel.');
   }
   const data = await res.json().catch(() => ({}));
@@ -98,10 +101,12 @@ async function llamar({ provider, model, key }, texto) {
 }
 
 /** Pide el souvenir a la IA y devuelve un deseo validado. */
-export async function crearConIA(cfg, texto) {
+export async function crearConIA(cfg, texto, { signal } = {}) {
   if (!cfg?.key) throw new Error('Pega tu llave de API para usar la IA.');
+  if (!PROVEEDORES[cfg.provider]) throw new Error('El proveedor de IA no es válido.');
+  if (!String(cfg.model || '').trim()) throw new Error('Escribe el nombre del modelo de IA.');
   if (!texto.trim()) throw new Error('Describe tu deseo: qué es, color y precio si lo sabes.');
-  return aDeseo(extraerJSON(await llamar(cfg, texto)));
+  return aDeseo(extraerJSON(await llamar(cfg, texto, signal)));
 }
 
 /** Ejemplo sin llave, para ver el resultado sin gastar nada. */

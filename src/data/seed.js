@@ -5,7 +5,7 @@ export function seed() {
   const hace = (n) => new Date(Date.now() - n * DAY).toISOString();
   const d = (id, nombre, precio, categoria, prioridad, modelo, color, dias) => ({ id, nombre, precio, categoria, prioridad, modelo, color, creado: hace(dias) });
   return {
-    version: 2,
+    version: 3,
     demoDias: 0,
     ahorro: { monto: 505, actualizado: hace(3), historial: [{ fecha: hace(3), monto: 505 }] },
     deseos: [

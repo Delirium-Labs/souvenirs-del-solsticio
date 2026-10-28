@@ -2,7 +2,7 @@
 import { T, M, B, box, put, cyl, tex, fit, FONT_TITLE, FONT_TEXT, COLORS as C } from '../engine/lib.js';
 import { globeFor } from '../models/index.js';
 import { dias, escarchado, diasParaDescongelar, nieve, estante, dinero } from '../data/rules.js';
-import { setHud, esc, modalDeseo, modalIA, modalAhorro, modalDemo } from '../ui/hud.js';
+import { setHud, esc, modalDeseo, modalIA, modalAhorro, modalAcceso, modalDemo } from '../ui/hud.js';
 
 const SP = 2.0;          // separación entre globos
 const TOP = 1.7;         // superficie del estante de arriba
@@ -13,6 +13,9 @@ export async function vitrina(ctx, params = {}) {
   const { store } = ctx;
   const state = await store.get();
   const now = store.now();
+  const remoto = state.acceso?.configurado === true;
+  const personal = state.vitrinaPersonal === true;
+  const dueno = !remoto || state.acceso.dueno || personal;
 
   const s = new T.Scene();
   s.background = new T.Color(0x161c42);
@@ -141,23 +144,29 @@ export async function vitrina(ctx, params = {}) {
     <header class="bar-top">
       <p class="brand">SOUVENIRS DEL SOLSTICIO</p>
       <div style="display:flex;align-items:center;gap:6px">
-        <button type="button" class="key" id="ahorro" title="Actualizar ahorro">AHORRO <span>${esc(dinero(state.ahorro.monto))}</span></button>
+        ${dueno ? `<button type="button" class="key" id="ahorro" title="Actualizar ahorro">${personal ? 'AHORRO LOCAL' : 'AHORRO'} <span>${esc(dinero(state.ahorro.monto))}</span></button>` : '<p class="stat">VITRINA PÚBLICA</p>'}
         <p class="stat">· ${slots.length} EN VITRINA${escarchados ? ` · ${escarchados} ESCARCHADO${escarchados > 1 ? 'S' : ''}` : ''}</p>
-        <button type="button" class="key" id="demo" title="Opciones de la demo">DEMO ▾</button>
+        ${dueno ? '<button type="button" class="key" id="demo" title="Opciones de la demo">DEMO ▾</button>' : ''}
+        ${personal ? '<button type="button" class="key" id="publica">VER PÚBLICA</button>' : ''}
+        ${remoto && !personal && !state.acceso.dueno && state.vitrinaPersonalCantidad ? `<button type="button" class="key" id="personal">MI VITRINA (${state.vitrinaPersonalCantidad})</button>` : ''}
+        ${remoto ? `<button type="button" class="key" id="${state.acceso.autenticado ? 'logout' : 'login'}">${state.acceso.autenticado ? 'SALIR' : 'ENTRAR'}</button>` : ''}
       </div>
     </header>
-    ${slots.length ? '' : '<p class="empty passive">La vitrina está vacía. Agrega tu primer deseo con + DESEO.</p>'}
+    ${slots.length ? '' : `<p class="empty passive">${dueno ? 'La vitrina está vacía. Agrega tu primer deseo con + DESEO.' : 'La vitrina pública todavía está vacía.'}</p>`}
     <nav class="bar-bottom" aria-label="Controles de la vitrina">
       <button type="button" class="key" id="prev" aria-label="Globo anterior">◄</button>
       <button type="button" class="key" id="next" aria-label="Globo siguiente">►</button>
       <button type="button" class="key" id="shelf"><span>▲▼</span> ESTANTE</button>
       <button type="button" class="key" id="grab"><span>A</span> AGARRAR</button>
       <button type="button" class="key" id="book"><span>B</span> LIBRETA</button>
-      <button type="button" class="key" id="add"><span>+</span> DESEO</button>
-      <button type="button" class="key" id="ai"><span>✦</span> IA</button>
+      ${dueno ? '<button type="button" class="key" id="add"><span>+</span> DESEO</button>' : ''}
+      ${dueno || remoto ? '<button type="button" class="key" id="ai"><span>✦</span> IA</button>' : ''}
     </nav>`);
   const $ = (id) => ctx.hud.querySelector('#' + id);
-  const addAndShow = async (d) => { const nd = await store.addDeseo(d); ctx.go('vitrina', { sel: nd.id }); };
+  const addAndShow = async (d) => {
+    const nd = remoto && !dueno ? await store.addDeseoLocal(d) : await store.addDeseo(d);
+    ctx.go('vitrina', { sel: nd.id });
+  };
   const openIA = () => modalIA(ctx.hud, addAndShow);
   const openDeseo = () => modalDeseo(ctx.hud, addAndShow, null, { onIA: openIA });
   const openAhorro = () => modalAhorro(ctx.hud, state.ahorro.monto, async (m) => { await store.setAhorro(m); ctx.go('vitrina', { sel: slots[sel]?.d.id }); });
@@ -166,13 +175,19 @@ export async function vitrina(ctx, params = {}) {
   $('shelf').onclick = switchShelf;
   $('grab').onclick = open;
   $('book').onclick = () => ctx.go('libreta');
-  $('add').onclick = openDeseo;
-  $('ai').onclick = openIA;
-  $('ahorro').onclick = openAhorro;
-  $('demo').onclick = () => modalDemo(ctx.hud, state, {
-    onAdvance: async (k) => { await store.adelantar(k); ctx.go('vitrina', { sel: slots[sel]?.d.id }); },
-    onReset: async () => { await store.reiniciar(); ctx.go('vitrina'); },
-  });
+  if (dueno) {
+    $('add').onclick = openDeseo;
+    $('ahorro').onclick = openAhorro;
+    $('demo').onclick = () => modalDemo(ctx.hud, state, {
+      onAdvance: async (k) => { await store.adelantar(k); ctx.go('vitrina', { sel: slots[sel]?.d.id }); },
+      onReset: async () => { await store.reiniciar(); ctx.go('vitrina'); },
+    });
+  }
+  if ($('ai')) $('ai').onclick = openIA;
+  if ($('personal')) $('personal').onclick = async () => { await store.usarVitrinaPersonal(); ctx.go('vitrina'); };
+  if ($('publica')) $('publica').onclick = async () => { await store.usarVitrinaPublica(); ctx.go('vitrina'); };
+  if ($('login')) $('login').onclick = () => modalAcceso(ctx.hud, store);
+  if ($('logout')) $('logout').onclick = async () => { await store.logout(); ctx.go('vitrina', {}, { history: 'replace' }); };
 
   const ray = new T.Raycaster();
   const roots = slots.map((x) => x.gl.g);
@@ -213,7 +228,7 @@ export async function vitrina(ctx, params = {}) {
       else if (k === 'arrowup' || k === 'arrowdown') switchShelf();
       else if (k === 'a' || k === 'enter') open();
       else if (k === 'b') ctx.go('libreta');
-      else if (k === '+' || k === 'n') openDeseo();
+      else if (dueno && (k === '+' || k === 'n')) openDeseo();
     },
   };
 }

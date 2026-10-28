@@ -2,14 +2,16 @@
 import { T, M, box, put, tex, fit, wrap, FONT_TITLE, FONT_TEXT, COLORS as C } from '../engine/lib.js';
 import { globeFor } from '../models/index.js';
 import { dias, escarchado, diasParaDescongelar, nieve, faltan, dinero } from '../data/rules.js';
-import { setHud, modalDeseo } from '../ui/hud.js';
+import { setHud, modalDeseo, modalAcceso } from '../ui/hud.js';
 
 export async function globo(ctx, params = {}) {
   const { store } = ctx;
   const state = await store.get();
   const now = store.now();
-  const d = state.deseos.find((x) => x.id === params.id) || state.deseos[0];
-  if (!d) throw new Error('No hay deseos en la vitrina.');
+  const d = state.deseos.find((x) => x.id === params.id);
+  if (!d) throw new Error('Ese deseo ya no está en la vitrina.');
+  const remoto = state.acceso?.configurado === true;
+  const dueno = !remoto || state.acceso.dueno || state.vitrinaPersonal === true;
   const frost = escarchado(d, now);
   const nd = dias(d.creado, now);
 
@@ -53,8 +55,8 @@ export async function globo(ctx, params = {}) {
     fit(c, l1, FONT_TEXT, 17, w - 16); c.fillText(l1, 8, 96);
     const l2 = frost ? `Escarchado: faltan ${diasParaDescongelar(d, now)} días` : `${nd} días en vitrina`;
     c.fillStyle = frost ? '#2F5BD3' : '#3B3A40'; fit(c, l2, FONT_TEXT, 17, w - 16); c.fillText(l2, 8, 111);
-    const l3 = falta > 0 ? `Te faltan ${dinero(falta)}` : '¡Te alcanza con el ahorro!';
-    c.fillStyle = falta > 0 ? '#D2463C' : '#3E8E5A'; fit(c, l3, FONT_TEXT, 17, w - 16); c.fillText(l3, 8, 127);
+    const l3 = dueno ? (falta > 0 ? `Te faltan ${dinero(falta)}` : '¡Te alcanza con el ahorro!') : 'Ahorro privado';
+    c.fillStyle = !dueno ? '#6E6658' : falta > 0 ? '#D2463C' : '#3E8E5A'; fit(c, l3, FONT_TEXT, 17, w - 16); c.fillText(l3, 8, 127);
     c.fillStyle = '#1B1B22'; for (let x = 8, i = 0; x < w - 8; i++) { const bw = 1 + (i * 7 % 3); c.fillRect(x, 148, bw, 12); x += bw + 1 + (i % 2); }
   });
   const tagPivot = put(s, new T.Group(), 1.15, 2.2, 0.35);
@@ -70,12 +72,17 @@ export async function globo(ctx, params = {}) {
 
   setHud(ctx.hud, `
     <p class="brand passive" style="position:absolute;left:32px;top:24px">SOUVENIRS DEL SOLSTICIO</p>
-    <div class="corner" style="display:flex;gap:6px"><button type="button" class="link" id="edit">EDITAR</button><button type="button" class="link" id="back">◄ VOLVER</button></div>
+    <div class="corner" style="display:flex;gap:6px">${dueno ? '<button type="button" class="link" id="edit">EDITAR</button>' : ''}<button type="button" class="link" id="back">◄ VOLVER</button></div>
     <div class="side-actions">
-      ${frost
+      ${!dueno
+        ? state.acceso?.autenticado
+          ? '<button type="button" class="btn" disabled aria-disabled="true">VITRINA DE SOLO LECTURA</button>'
+          : '<button type="button" class="btn" id="login">ENTRAR PARA ADMINISTRAR</button>'
+        : frost
         ? `<button type="button" class="btn" disabled aria-disabled="true">ESCARCHADO · ${diasParaDescongelar(d, now)} DÍAS</button>`
         : '<button type="button" class="btn" id="buy">COMPRAR</button>'}
       <button type="button" class="btn ghost" id="later">DEJAR PARA MÁS TARDE</button>
+      <p class="error" id="buy-error" role="alert"></p>
       <p class="hint passive" style="text-align:center">Arrastra para girar el globo</p>
     </div>`);
   const $ = (id) => ctx.hud.querySelector('#' + id);
@@ -87,12 +94,16 @@ export async function globo(ctx, params = {}) {
     try {
       const r = await store.comprar(d.id);
       ctx.go('compra', { compraId: r.compra.id, nuevos: r.nuevos.map((l) => l.id) });
-    } catch (e) { buying = false; console.error(e); }
+    } catch (e) {
+      buying = false;
+      $('buy-error').textContent = e.message || 'No se pudo completar la compra.';
+    }
   };
   $('back').onclick = leave;
-  $('edit').onclick = () => modalDeseo(ctx.hud, async (c) => { await store.updateDeseo(d.id, c); ctx.go('globo', { id: d.id }); }, d);
+  if ($('edit')) $('edit').onclick = () => modalDeseo(ctx.hud, async (c) => { await store.updateDeseo(d.id, c); ctx.go('globo', { id: d.id }); }, d);
   $('later').onclick = leave;
   if ($('buy')) $('buy').onclick = buy;
+  if ($('login')) $('login').onclick = () => modalAcceso(ctx.hud, store);
 
   let spin = 0.5, dragging = false, rot = 0;
 
@@ -115,7 +126,7 @@ export async function globo(ctx, params = {}) {
       else { dragging = false; }
     },
     onKey(k) {
-      if (k === 'a' || k === 'enter') buy();
+      if (dueno && (k === 'a' || k === 'enter')) buy();
       else if (k === 'b' || k === 'escape' || k === 'backspace') leave();
       else if (k === 'arrowleft') rot -= 0.3;
       else if (k === 'arrowright') rot += 0.3;

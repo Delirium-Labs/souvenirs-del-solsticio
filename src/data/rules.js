@@ -45,19 +45,16 @@ export const LOGROS = [
     check: (s, ahora) => {
       const ini = new Date(2026, 11, 1).getTime(), fin = new Date(2027, 0, 1).getTime();
       if (ahora < fin) return false;
-      const antes = s.ahorro.historial.filter((h) => new Date(h.fecha).getTime() < ini).pop();
-      let ref = antes ? antes.monto : null;
-      for (const h of s.ahorro.historial) {
+      const teniaAhorro = s.ahorro.historial.some((h) => new Date(h.fecha).getTime() < ini);
+      const movimientos = s.ahorro.historial.some((h) => {
         const t = new Date(h.fecha).getTime();
-        if (t < ini || t >= fin) continue;
-        if (ref !== null && h.monto < ref) return false;
-        ref = h.monto;
-      }
-      return ref !== null;
+        return t >= ini && t < fin;
+      });
+      return teniaAhorro && !movimientos;
     },
   },
   {
     id: 'vacia', nombre: 'Vitrina vacía', pista: 'Vaciar un estante completo.',
-    check: (s) => ['arriba', 'abajo'].some((e) => s.compras.some((c) => estante(c.deseo) === e) && !s.deseos.some((d) => estante(d) === e)),
+    check: (s) => s.compras.some((c) => c.estanteVaciado === 'arriba' || c.estanteVaciado === 'abajo'),
   },
 ];

@@ -7,23 +7,50 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 
 export function setHud(hud, html) { hud.innerHTML = html; return hud; }
 
-function openModal(hud, html, onSubmit) {
+function openModal(hud, html, onSubmit, { onClose } = {}) {
+  const previousFocus = document.activeElement;
   const back = document.createElement('div');
   back.className = 'modal-back';
   back.innerHTML = html;
   hud.appendChild(back);
   const form = back.querySelector('form');
   const err = back.querySelector('.error');
-  const close = () => back.remove();
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    onClose?.();
+    back.remove();
+    previousFocus?.focus?.();
+  };
+  form?.setAttribute('role', 'dialog');
+  form?.setAttribute('aria-modal', 'true');
   back.addEventListener('pointerdown', (e) => { if (e.target === back) close(); });
   back.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
+  back.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const focusables = [...back.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables.at(-1);
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     try { await onSubmit(new FormData(form), close, back); }
-    catch (ex) { if (err) err.textContent = ex.message; }
+    catch (ex) {
+      if (ex?.name === 'AbortError') return;
+      if (err && back.isConnected) err.textContent = ex.message;
+    }
   });
   back.querySelector('input, select, button')?.focus();
-  return { back, close };
+  return { back, close, isOpen: () => back.isConnected && !closed };
 }
 
 /** Formulario: agregar un deseo (o editar uno si llega `initial`). */
@@ -50,7 +77,9 @@ export function modalDeseo(hud, onSave, initial = null, { onIA } = {}) {
         <div class="field"><label for="d-categoria">Categoría</label><select id="d-categoria" name="categoria">${opt(CATEGORIAS, v.categoria || 'Tecnología')}</select></div>
         <div class="field"><label for="d-modelo">Objeto del globo</label><select id="d-modelo" name="modelo">${modelos}</select></div>
       </div>
-      <fieldset class="swatches"><legend>Color</legend>${colores}</fieldset>
+      ${v.modelo === 'ia'
+        ? '<p class="note">El color del souvenir de IA pertenece a sus piezas y se conserva al editar.</p>'
+        : `<fieldset class="swatches"><legend>Color</legend>${colores}</fieldset>`}
       <p class="note">${editing ? 'Los días en vitrina no cambian al editar.' : 'Llega escarchado: no se puede comprar hasta cumplir 7 días en la vitrina.'}</p>
       <p class="error" role="alert"></p>
       <div class="actions"><button type="button" class="btn ghost small" data-close>CANCELAR</button><button type="submit" class="btn small">${editing ? 'GUARDAR' : 'PONER EN LA VITRINA'}</button></div>
@@ -59,7 +88,7 @@ export function modalDeseo(hud, onSave, initial = null, { onIA } = {}) {
     const precio = Number(fd.get('precio'));
     if (!nombre) throw new Error('Ponle un nombre al deseo.');
     if (!(precio > 0)) throw new Error('El precio tiene que ser mayor que cero.');
-    await onSave({ nombre, precio, categoria: fd.get('categoria'), prioridad: fd.get('prioridad'), modelo: fd.get('modelo'), color: fd.get('color') });
+    await onSave({ nombre, precio, categoria: fd.get('categoria'), prioridad: fd.get('prioridad'), modelo: fd.get('modelo'), color: v.modelo === 'ia' ? v.color : fd.get('color') });
     close();
   });
   m.back.querySelector('#to-ia')?.addEventListener('click', () => { m.close(); onIA(); });
@@ -71,6 +100,7 @@ export function modalIA(hud, onCreate) {
   const saved = getLlave();
   const prov = saved?.provider || 'anthropic';
   const provOpts = Object.entries(PROVEEDORES).map(([k, p]) => `<option value="${k}"${k === prov ? ' selected' : ''}>${esc(p.label)}</option>`).join('');
+  const controller = new AbortController();
   const m = openModal(hud, `
     <form class="modal" id="form-ia" novalidate autocomplete="off">
       <h2>✦ CREAR CON IA</h2>
@@ -97,12 +127,13 @@ export function modalIA(hud, onCreate) {
     status.textContent = 'La IA está armando tu souvenir…';
     go.disabled = true;
     try {
+      const deseo = await crearConIA(cfg, String(fd.get('texto') || ''), { signal: controller.signal });
+      if (!back.isConnected) return;
       setLlave(cfg, fd.get('recordar') === 'on');
-      const deseo = await crearConIA(cfg, String(fd.get('texto') || ''));
       await onCreate(deseo);
       close();
     } finally { status.textContent = ''; go.disabled = false; }
-  });
+  }, { onClose: () => controller.abort() });
   const q = (sel) => m.back.querySelector(sel);
   const note = q('.note');
   const setNote = () => { note.textContent = `La llave va directo de tu navegador a ${PROVEEDORES[q('#ia-prov').value].label}. No pasa por ningún servidor de la tienda y tu wishlist se queda en este navegador.`; };
@@ -136,12 +167,46 @@ export function modalAhorro(hud, actual, onSave) {
   });
 }
 
+/** Acceso del dueño mediante enlace mágico de Supabase. */
+export function modalAcceso(hud, store) {
+  return openModal(hud, `
+    <form class="modal" id="form-acceso" novalidate>
+      <h2>ENTRAR A LA TIENDA</h2>
+      <div class="field">
+        <label for="acceso-email">Correo del dueño</label>
+        <input id="acceso-email" name="email" type="email" autocomplete="email" placeholder="tu@correo.com" required>
+      </div>
+      <p class="note">Te enviaremos un enlace mágico. Solo las cuentas registradas en Delirium Hub pueden modificar la vitrina.</p>
+      <p class="status" aria-live="polite"></p>
+      <p class="error" role="alert"></p>
+      <div class="actions">
+        <button type="button" class="btn ghost small" data-close>CANCELAR</button>
+        <button type="submit" class="btn small" id="acceso-go">ENVIAR ENLACE</button>
+      </div>
+    </form>`, async (fd, _close, back) => {
+    const status = back.querySelector('.status');
+    const button = back.querySelector('#acceso-go');
+    button.disabled = true;
+    status.textContent = 'Enviando enlace…';
+    try {
+      await store.login(String(fd.get('email') || ''));
+      status.textContent = 'Revisa tu correo y abre el enlace en este navegador.';
+    } finally {
+      if (status.textContent === 'Enviando enlace…') status.textContent = '';
+      button.disabled = false;
+    }
+  });
+}
+
 /** Ventana de la demo: adelantar el reloj o empezar de cero. */
-export function modalDemo(hud, { demoDias }, { onAdvance, onReset }) {
+export function modalDemo(hud, { demoDias, vitrinaPersonal, acceso }, { onAdvance, onReset }) {
+  const destino = vitrinaPersonal || !acceso?.configurado
+    ? 'Estos datos viven solo en este navegador.'
+    : 'Estos datos se guardan en Delirium Hub.';
   const m = openModal(hud, `
     <form class="modal" id="form-demo">
       <h2>MODO DEMO</h2>
-      <p class="note">Estos datos viven solo en este navegador. Reloj de la demo: ${demoDias ? `+${demoDias} días` : 'hoy'}.</p>
+      <p class="note">${destino} Reloj de la demo: ${demoDias ? `+${demoDias} días` : 'hoy'}.</p>
       <button type="button" class="btn outline" id="demo-7">ADELANTAR 7 DÍAS</button>
       <button type="button" class="btn ghost" id="demo-reset">EMPEZAR DE CERO</button>
       <p class="error" role="alert"></p>

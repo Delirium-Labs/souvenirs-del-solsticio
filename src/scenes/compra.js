@@ -32,8 +32,8 @@ function duende() {
 export async function compra(ctx, params = {}) {
   const { store } = ctx;
   const state = await store.get();
-  const c = state.compras.find((x) => x.id === params.compraId) || state.compras[state.compras.length - 1];
-  if (!c) throw new Error('Todavía no hay compras.');
+  const c = state.compras.find((x) => x.id === params.compraId);
+  if (!c) throw new Error('Ese recibo ya no está disponible.');
   const nuevos = (params.nuevos || []).map((id) => LOGROS.find((l) => l.id === id)).filter(Boolean);
 
   const s = new T.Scene();
