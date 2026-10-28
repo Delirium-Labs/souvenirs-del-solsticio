@@ -1,0 +1,20 @@
+{
+  "name": "souvenirs-del-solsticio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Delirium Labs #1 — una lista de deseos convertida en una tienda de souvenirs nocturna estilo PS1.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:artifact": "vite build --mode artifact && node scripts/to-artifact.mjs"
+  },
+  "dependencies": {
+    "three": "0.149.0"
+  },
+  "devDependencies": {
+    "vite": "5.4.20",
+    "vite-plugin-singlefile": "2.3.0"
+  }
+}
